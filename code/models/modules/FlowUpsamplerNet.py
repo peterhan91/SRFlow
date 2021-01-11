@@ -30,7 +30,7 @@ class FlowUpsamplerNet(nn.Module):
     def __init__(self, image_shape, hidden_channels, K, L=None,
                  actnorm_scale=1.0,
                  flow_permutation=None,
-                 flow_coupling="affine",
+                 flow_coupling="affine", Haar=True,
                  LU_decomposed=False, opt=None):
 
         super().__init__()
@@ -43,6 +43,7 @@ class FlowUpsamplerNet(nn.Module):
             self.K = [K for K in [K, ] * (self.L + 1)]
 
         self.opt = opt
+        self.haar = Haar
         H, W, self.C = image_shape
         self.check_image_shape()
 
@@ -71,6 +72,15 @@ class FlowUpsamplerNet(nn.Module):
                 2: 'fea_up1',
                 3: 'fea_up0',
                 4: 'fea_up-1'
+            }
+
+        elif opt['scale'] == 0:
+            self.levelToName = {
+                0: 'fea_up1',
+                1: 'fea_up0',
+                2: 'fea_up-1',
+                3: 'fea_up-2',
+                4: 'fea_up-3'
             }
 
         affineInCh = self.get_affineInCh(opt_get)
@@ -181,8 +191,11 @@ class FlowUpsamplerNet(nn.Module):
                     [-1, self.C, H, W])
 
     def arch_squeeze(self, H, W):
+        if not self.haar:
+            self.layers.append(flow.SqueezeLayer(factor=2))
+        else:
+            self.layers.append(flow.HaarDownsampling(channel_in=self.C))
         self.C, H, W = self.C * 4, H // 2, W // 2
-        self.layers.append(flow.SqueezeLayer(factor=2))
         self.output_shapes.append([-1, self.C, H, W])
         return H, W
 
@@ -228,6 +241,7 @@ class FlowUpsamplerNet(nn.Module):
         for layer, shape in zip(self.layers, self.output_shapes):
             size = shape[2]
             level = int(np.log(160 / size) / np.log(2))
+            ## if size = 20, 40, 80 --> level = 3, 2, 1
 
             if level > 0 and level not in level_conditionals.keys():
                 level_conditionals[level] = rrdbResults[self.levelToName[level]]
