@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models.modules.module_util as mutil
+from models.modules import flow
 from utils.util import opt_get
 
 
@@ -67,7 +68,8 @@ class RRDBNet(nn.Module):
         super(RRDBNet, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
         self.scale = scale
-
+        
+        # self.downhaar = flow.HaarDownsampling(channel_in=in_nc)
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
         self.RRDB_trunk = mutil.make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
@@ -87,6 +89,7 @@ class RRDBNet(nn.Module):
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def forward(self, x, get_steps=False):
+        # x_, _ = self.downhaar(x) 
         fea = self.conv_first(x)
 
         block_idxs = opt_get(self.opt, ['network_G', 'flow', 'stackRRDB', 'blocks']) or []

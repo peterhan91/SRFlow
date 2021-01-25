@@ -58,7 +58,8 @@ class CondAffineSeparatedAndCond(nn.Module):
         if not reverse:
             z = input
             assert z.shape[1] == self.in_channels, (z.shape[1], self.in_channels)
-
+            # print('feature shape: ', ft.shape)
+            # print('z shape is: ', z.shape)
             # Feature Conditional
             scaleFt, shiftFt = self.feature_extract(ft, self.fFeatures)
             z = z + shiftFt
@@ -80,6 +81,7 @@ class CondAffineSeparatedAndCond(nn.Module):
 
             # Self Conditional
             z1, z2 = self.split(z)
+            # print('shape of z, z1, z2, and ft is: ',z.shape, z1.shape, z2.shape, ft.shape)
             scale, shift = self.feature_extract_aff(z1, ft, self.fAffine)
             self.asserts(scale, shift, z1, z2)
             z2 = z2 / scale

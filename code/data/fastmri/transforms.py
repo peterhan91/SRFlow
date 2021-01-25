@@ -5,8 +5,14 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 """
 
-import numpy as np
+from typing import List, Optional
+
 import torch
+import numpy as np
+from packaging import version
+
+if version.parse(torch.__version__) >= version.parse("1.7.0"):
+    import torch.fft  # type: ignore
 
 
 def to_tensor(data):
@@ -25,7 +31,7 @@ def to_tensor(data):
     return torch.from_numpy(np.ascontiguousarray(data)).float()
 
 
-def apply_mask(data, mask_func, rev=False, seed=None, cuda=False):
+def apply_mask(data, mask_func, rev=False, hamming=False, seed=None, cuda=False):
     """
     Subsample given k-space by multiplying with a mask.
 
@@ -48,51 +54,73 @@ def apply_mask(data, mask_func, rev=False, seed=None, cuda=False):
     if cuda:
         mask = mask.cuda()
         if not rev:
-            return torch.where(mask == 0, torch.Tensor([0]).cuda(), data), mask
+            if not hamming:
+                return torch.where(mask == 0, torch.Tensor([0]).cuda(), data), mask
+            else:
+                return mask*data, mask
         else:
-            return torch.where(mask != 0, torch.Tensor([0]).cuda(), data), mask
+            if not hamming:
+                return torch.where(mask != 0, torch.Tensor([0]).cuda(), data), mask
+            else:
+                return (1.-mask)*data, mask
     else:
         if not rev:
-            return torch.where(mask == 0, torch.Tensor([0]), data), mask
+            if not hamming:
+                return torch.where(mask == 0, torch.Tensor([0]), data), mask
+            else:
+                return mask*data, mask
         else:
-            return torch.where(mask != 0, torch.Tensor([0]), data), mask
+            if not hamming:
+                return torch.where(mask != 0, torch.Tensor([0]), data), mask
+            else:
+                return (1.-mask)*data, mask
 
 
-def fft2(data):
+def fft2(data: torch.Tensor) -> torch.Tensor:
     """
     Apply centered 2 dimensional Fast Fourier Transform.
-
     Args:
-        data (torch.Tensor): Complex valued input data containing at least 3 dimensions: dimensions
-            -3 & -2 are spatial dimensions and dimension -1 has size 2. All other dimensions are
-            assumed to be batch dimensions.
-
+        data: Complex valued input data containing at least 3 dimensions:
+            dimensions -3 & -2 are spatial dimensions and dimension -1 has size
+            2. All other dimensions are assumed to be batch dimensions.
     Returns:
-        torch.Tensor: The FFT of the input.
+        The FFT of the input.
     """
-    assert data.size(-1) == 2
-    data = ifftshift(data, dim=(-3, -2))
-    data = torch.fft(data, 2, normalized=True)
-    data = fftshift(data, dim=(-3, -2))
+    if not data.shape[-1] == 2:
+        raise ValueError("Tensor does not have separate complex dim.")
+
+    data = ifftshift(data, dim=[-3, -2])
+    data = torch.view_as_real(
+        torch.fft.fftn(  # type: ignore
+            torch.view_as_complex(data), dim=(-2, -1), norm="ortho"
+        )
+    )
+    data = fftshift(data, dim=[-3, -2])
+
     return data
 
 
-def ifft2(data):
+def ifft2(data: torch.Tensor) -> torch.Tensor:
     """
     Apply centered 2-dimensional Inverse Fast Fourier Transform.
-
     Args:
-        data (torch.Tensor): Complex valued input data containing at least 3 dimensions: dimensions
-            -3 & -2 are spatial dimensions and dimension -1 has size 2. All other dimensions are
-            assumed to be batch dimensions.
-
+        data: Complex valued input data containing at least 3 dimensions:
+            dimensions -3 & -2 are spatial dimensions and dimension -1 has size
+            2. All other dimensions are assumed to be batch dimensions.
     Returns:
-        torch.Tensor: The IFFT of the input.
+        The IFFT of the input.
     """
-    assert data.size(-1) == 2
-    data = ifftshift(data, dim=(-3, -2))
-    data = torch.ifft(data, 2, normalized=True)
-    data = fftshift(data, dim=(-3, -2))
+    if not data.shape[-1] == 2:
+        raise ValueError("Tensor does not have separate complex dim.")
+
+    data = ifftshift(data, dim=[-3, -2])
+    data = torch.view_as_real(
+        torch.fft.ifftn(  # type: ignore
+            torch.view_as_complex(data), dim=(-2, -1), norm="ortho"
+        )
+    )
+    data = fftshift(data, dim=[-3, -2])
+
     return data
 
 

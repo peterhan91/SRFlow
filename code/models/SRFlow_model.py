@@ -16,10 +16,14 @@
 
 import logging
 from collections import OrderedDict
+
+from torch.nn.functional import l1_loss
 from utils.util import get_resume_paths, opt_get
 
 import torch
 import torch.nn as nn
+from torch import autograd
+import torch.nn.utils as utils
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 import models.networks as networks
 import models.lr_scheduler as lr_scheduler
@@ -35,7 +39,7 @@ class SRFlowModel(BaseModel):
 
         self.heats = opt['val']['heats']
         self.n_sample = opt['val']['n_sample']
-        self.hr_size = opt_get(opt, ['datasets', 'train', 'center_crop_hr_size'])
+        self.hr_size = opt_get(opt, ['datasets', 'train', 'GT_size'])
         self.hr_size = 160 if self.hr_size is None else self.hr_size
         self.lr_size = self.hr_size // opt['scale']
 
@@ -76,15 +80,16 @@ class SRFlowModel(BaseModel):
         optim_params_RRDB = []
         optim_params_other = []
         for k, v in self.netG.named_parameters():  # can optimize for a part of the model
-            print(k, v.requires_grad)
+            # print(k, v.requires_grad)
             if v.requires_grad:
                 if '.RRDB.' in k:
                     optim_params_RRDB.append(v)
-                    print('opt', k)
+                    # print('opt', k)
                 else:
+                    # v.requires_grad = False
                     optim_params_other.append(v)
-                if self.rank <= 0:
-                    logger.warning('Params [{:s}] will not optimize.'.format(k))
+                # if self.rank <= 0:
+                #     logger.warning('Params [{:s}] will not optimize.'.format(k))
 
         print('rrdb params', len(optim_params_RRDB))
 
@@ -133,38 +138,65 @@ class SRFlowModel(BaseModel):
         if need_GT:
             self.real_H = data['GT'].to(self.device)  # GT
 
+    def clip_grad_norm(self, optimizer, max_norm, norm_type=2):
+        """Clip the norm of the gradients for all parameters under `optimizer`.
+        Args:
+            optimizer (torch.optim.Optimizer):
+            max_norm (float): The maximum allowable norm of gradients.
+            norm_type (int): The type of norm to use in computing gradient norms.
+        """
+        for group in optimizer.param_groups:
+            utils.clip_grad_norm_(group['params'], max_norm, norm_type)
+
     def optimize_parameters(self, step):
 
         train_RRDB_delay = opt_get(self.opt, ['network_G', 'train_RRDB_delay'])
         if train_RRDB_delay is not None and step > int(train_RRDB_delay * self.opt['train']['niter']) \
-                and not self.netG.module.RRDB_training:
+            and not self.netG.module.RRDB_training:
             if self.netG.module.set_rrdb_training(True):
                 self.add_optimizer_and_scheduler_RRDB(self.opt['train'])
+                print('Starting optimizing RRDB part as well !!!!!!')
 
         # self.print_rrdb_state()
 
+        # scaler = torch.cuda.amp.GradScaler()
         self.netG.train()
         self.log_dict = OrderedDict()
         self.optimizer_G.zero_grad()
-
+        # with torch.cuda.amp.autocast():
         losses = {}
         weight_fl = opt_get(self.opt, ['train', 'weight_fl'])
         weight_fl = 1 if weight_fl is None else weight_fl
+        # with autograd.detect_anomaly():
+        # weight_fl = -1
         if weight_fl > 0:
-            z, nll, y_logits = self.netG(gt=self.real_H, lr=self.var_L, reverse=False)
+            z, nll, y_logits = self.netG(gt=self.real_H, lr=self.var_L, add_gt_noise=True, reverse=False)
             nll_loss = torch.mean(nll)
             losses['nll_loss'] = nll_loss * weight_fl
+            # print('nll_loss: ', losses['nll_loss'])
 
-        weight_l1 = opt_get(self.opt, ['train', 'weight_l1']) or 0
+        # weight_l1 = opt_get(self.opt, ['train', 'weight_l1']) or 0
+        weight_l1 = -1
         if weight_l1 > 0:
+            # logger.info('Using reconstruction loss!')
+            # print('val_L shape: ', self.var_L.shape)
             z = self.get_z(heat=0, seed=None, batch_size=self.var_L.shape[0], lr_shape=self.var_L.shape)
-            sr, logdet = self.netG(lr=self.var_L, z=z, eps_std=0, reverse=True, reverse_with_grad=True)
-            l1_loss = (sr - self.real_H).abs().mean()
+            sr, logdet = self.netG(lr=self.var_L, z=z, eps_std=0, add_gt_noise=True, reverse=True, reverse_with_grad=True)
+            # print('sr, real_H shape: ', sr.shape, self.real_H.shape)
+            # l1_loss = (sr - self.real_H).abs().mean()
+            diff = sr - self.real_H
+            # print(torch.sum(diff))
+            l1_loss = torch.mean(torch.sum(torch.sqrt(diff * diff + 1e-6), (1, 2, 3)))
             losses['l1_loss'] = l1_loss * weight_l1
-
+            ##  print('recon_loss: ', losses['l1_loss'])
+    
         total_loss = sum(losses.values())
         total_loss.backward()
+        # scaler.scale(total_loss).backward()
+        # self.clip_grad_norm(self.optimizer_G, 1e2)
         self.optimizer_G.step()
+        # scaler.step(self.optimizer_G)
+        # scaler.update()
 
         mean = total_loss.item()
         return mean
@@ -226,8 +258,10 @@ class SRFlowModel(BaseModel):
         if seed: torch.manual_seed(seed)
         if opt_get(self.opt, ['network_G', 'flow', 'split', 'enable']):
             C = self.netG.module.flowUpsamplerNet.C
-            H = int(self.opt['scale'] * lr_shape[2] // self.netG.module.flowUpsamplerNet.scaleH)
-            W = int(self.opt['scale'] * lr_shape[3] // self.netG.module.flowUpsamplerNet.scaleW)
+            # H = int(self.opt['scale'] * lr_shape[2] // self.netG.module.flowUpsamplerNet.scaleH)
+            # W = int(self.opt['scale'] * lr_shape[3] // self.netG.module.flowUpsamplerNet.scaleW)
+            scale = opt_get(self.opt, ['network_G', 'flow', 'L'])
+            H, W = lr_shape[2] // (2**int(scale)), lr_shape[3] // (2**int(scale))
             z = torch.normal(mean=0, std=heat, size=(batch_size, C, H, W)) if heat > 0 else torch.zeros(
                 (batch_size, C, H, W))
         else:

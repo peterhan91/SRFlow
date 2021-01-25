@@ -14,6 +14,7 @@
 #
 # This file contains content licensed by https://github.com/chaiyujin/glow-pytorch/blob/master/LICENSE
 
+from logging import log
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -175,21 +176,23 @@ class HaarDownsampling(nn.Module):
     def forward(self, x, logdet=None, reverse=False):
         if not reverse:
             self.elements = x.shape[1] * x.shape[2] * x.shape[3]
-            # self.last_jac = self.elements / 4 * np.log(1/16.)
+            # self.logdet = self.elements / 4 * np.log(1/16.)
+            self.logdet = logdet
 
             out = F.conv2d(x, self.haar_weights, bias=None, stride=2, groups=self.channel_in) / 4.0
             out = out.reshape([x.shape[0], self.channel_in, 4, x.shape[2] // 2, x.shape[3] // 2])
             out = torch.transpose(out, 1, 2)
             out = out.reshape([x.shape[0], self.channel_in * 4, x.shape[2] // 2, x.shape[3] // 2])
-            return out, logdet
+            return out, self.logdet
         else:
             self.elements = x.shape[1] * x.shape[2] * x.shape[3]
-            # self.last_jac = self.elements / 4 * np.log(16.)
+            # self.logdet = self.elements / 4 * np.log(16.)
+            self.logdet = logdet
 
             out = x.reshape([x.shape[0], 4, self.channel_in, x.shape[2], x.shape[3]])
             out = torch.transpose(out, 1, 2)
             out = out.reshape([x.shape[0], self.channel_in * 4, x.shape[2], x.shape[3]])
-            return F.conv_transpose2d(out, self.haar_weights, bias=None, stride=2, groups = self.channel_in), logdet
+            return F.conv_transpose2d(out, self.haar_weights, bias=None, stride=2, groups = self.channel_in), self.logdet
 
     # def jacobian(self, x, rev=False):
     #     return self.last_jac

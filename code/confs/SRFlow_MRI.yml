@@ -15,38 +15,44 @@
 # This file contains content licensed by https://github.com/xinntao/BasicSR/blob/master/LICENSE/LICENSE
 
 #### general settings
-name: train
+name: MRA_4x
 use_tb_logger: true
 model: SRFlow
 distortion: sr
-scale: 0
+scale: 1
 gpu_ids: [ 2, 1, 0 ]
 
 #### datasets
 datasets:
   train:
-    name: FastMRI_160_tr
+    name: FastMRI_96_tr
     mode: FastMRI
     dataroot_GT: /media/tianyu.han/mri-scratch/DeepLearning/MRA/Img_train/
     dataroot_LQ: ~
-    quant: 32
+    quant: 64
 
     use_shuffle: true
-    n_workers: 30  # per GPU
-    batch_size: 27
-    GT_size: 160
+    n_workers: 40  # per GPU
+    batch_size: 21
+    GT_size: 96
     use_flip: true
+    use_rot: true
     color: gray
     seed: 10
+    factor: 4
+    is_MRA: true
+
   val:
-    name: FastMRI_160_va
+    name: FastMRI_96_va
     mode: FastMRI
-    dataroot_GT: /media/tianyu.han/mri-scratch/DeepLearning/MRA/Img_val/
+    dataroot_GT: /media/tianyu.han/mri-scratch/DeepLearning/MRA/val/
     dataroot_LQ: ~
-    quant: 32
+    quant: 64
     n_max: 20
     color: gray
     seed: 10
+    factor: 4
+    is_MRA: true
 
 #### Test Settings
 dataroot_GT: ../datasets/div2k-validation-modcrop8-gt
@@ -63,7 +69,7 @@ network_G:
   nb: 23
   upscale: 4
   train_RRDB: false
-  train_RRDB_delay: 0.5
+  train_RRDB_delay: ~
 
   flow:
     K: 16
@@ -71,16 +77,18 @@ network_G:
     noInitialInj: true
     coupling: CondAffineSeparatedAndCond
     additionalFlowNoAffine: 2
+    fea_up0: true
+    fea_up-1: true
+    fea_up-2: true
     split:
       enable: true
-    fea_up0: true
     stackRRDB:
-      blocks: [ 1, 8, 15, 22 ]
+      blocks: [ 1, 3, 5, 7 ]
       concat: true
 
 #### path
 path:
-  pretrain_model_G: ~ 
+  pretrain_model_G: ~
   strict_load: true
   resume_state: auto
 
@@ -90,18 +98,18 @@ train:
   lr_G: !!float 2.5e-4
   weight_decay_G: 0
   beta1: 0.9
-  beta2: 0.99
+  beta2: 0.999
   lr_scheme: MultiStepLR
   warmup_iter: -1  # no warm up
   lr_steps_rel: [ 0.5, 0.75, 0.9, 0.95 ]
   lr_gamma: 0.5
 
-  niter: 200000
-  val_freq: 40000
+  niter: 100000
+  val_freq: 20000
 
 #### validation settings
 val:
-  heats: [ 0.0, 0.5, 0.75, 1.0 ]
+  heats: [ 0.0, 0.75, 1.0 ]
   n_sample: 3
 
 #### logger

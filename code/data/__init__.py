@@ -43,9 +43,9 @@ def create_dataset(dataset_opt):
         from data.fastmri_dataset import FASTMRIDataset as D
         from data.fastmri import subsample, transforms
         # Create a mask function
-        mask_func = subsample.RandomMaskFunc(
-            center_fractions=[0.08],
-            accelerations=[4]
+        mask_func = subsample.HammingMaskFunc(
+            # center_fractions=[0.08],
+            accelerations=[dataset_opt['factor']]
         )
         class DataTransform:
             def __call__(self, target, mask_func, seed=None):

@@ -1,7 +1,6 @@
 import random
 import numpy as np
 import cv2
-import lmdb
 import torch.utils.data as data
 import data.util as util
 
@@ -17,6 +16,7 @@ class FASTMRIDataset(data.Dataset):
         self.transform = transform
         self.mask_func = mask_func
         self.seed = self.opt['seed']
+        self.is_MRA = self.opt['is_MRA']
 
         self.data_type = self.opt['data_type']
         self.paths_LQ, self.paths_GT = None, None
@@ -32,28 +32,19 @@ class FASTMRIDataset(data.Dataset):
             ), 'GT and LQ datasets have different number of images - {}, {}.'.format(
                 len(self.paths_LQ), len(self.paths_GT))
 
-    def _init_lmdb(self):
-        # https://github.com/chainer/chainermn/issues/129
-        self.GT_env = lmdb.open(self.opt['dataroot_GT'], readonly=True, lock=False, readahead=False,
-                                meminit=False)
-        self.LQ_env = lmdb.open(self.opt['dataroot_LQ'], readonly=True, lock=False, readahead=False,
-                                meminit=False)
 
     def __getitem__(self, index):
-        if self.data_type == 'lmdb':
-            if (self.GT_env is None) or (self.LQ_env is None):
-                self._init_lmdb()
         GT_path, LQ_path = None, None
-        scale = self.opt['scale']
+        scale = 1
         GT_size = self.opt['GT_size']
 
         # get GT image
         GT_path = self.paths_GT[index]
-        if self.data_type == 'lmdb':
-            resolution = [int(s) for s in self.sizes_GT[index].split('_')]
-        else:
-            resolution = None
+        resolution = None
         img_GT = util.read_img(self.GT_env, GT_path, resolution)
+        if self.is_MRA:
+            img_GT = cv2.resize(np.copy(img_GT), (512, 512), 
+                            interpolation=cv2.INTER_LINEAR)
         # modcrop in the validation / test phase
         if self.opt['phase'] != 'train':
             img_GT = util.modcrop(img_GT, scale)

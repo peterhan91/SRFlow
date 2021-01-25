@@ -14,9 +14,11 @@
 #
 # This file contains content licensed by https://github.com/chaiyujin/glow-pytorch/blob/master/LICENSE
 
+from tarfile import filemode
 import numpy as np
-import torch
+import torch.nn.functional as F
 from torch import nn as nn
+import torch
 
 import models.modules.Split
 from models.modules import flow, thops
@@ -30,8 +32,8 @@ class FlowUpsamplerNet(nn.Module):
     def __init__(self, image_shape, hidden_channels, K, L=None,
                  actnorm_scale=1.0,
                  flow_permutation=None,
-                 flow_coupling="affine", Haar=True,
-                 LU_decomposed=False, opt=None):
+                 flow_coupling="affine", Haar=False,
+                 LU_decomposed=True, opt=None):
 
         super().__init__()
 
@@ -74,7 +76,7 @@ class FlowUpsamplerNet(nn.Module):
                 4: 'fea_up-1'
             }
 
-        elif opt['scale'] == 0:
+        elif opt['scale'] == 1:
             self.levelToName = {
                 0: 'fea_up1',
                 1: 'fea_up0',
@@ -87,6 +89,7 @@ class FlowUpsamplerNet(nn.Module):
         flow_permutation = self.get_flow_permutation(flow_permutation, opt)
 
         normOpt = opt_get(opt, ['network_G', 'flow', 'norm'])
+        self.hr_size = opt_get(opt, ['datasets', 'train', 'GT_size'])
 
         conditional_channels = {}
         n_rrdb = self.get_n_rrdb_channels(opt, opt_get)
@@ -235,14 +238,15 @@ class FlowUpsamplerNet(nn.Module):
 
         L = opt_get(self.opt, ['network_G', 'flow', 'L'])
 
-        for level in range(1, L + 1):
-            bypasses[level] = torch.nn.functional.interpolate(gt, scale_factor=2 ** -level, mode='bilinear', align_corners=False)
+        # for level in range(1, L + 1):
+        #     bypasses[level] = torch.nn.functional.interpolate(gt, scale_factor=2 ** -level, mode='bilinear', align_corners=False)
 
         for layer, shape in zip(self.layers, self.output_shapes):
             size = shape[2]
-            level = int(np.log(160 / size) / np.log(2))
+            level = int(np.log(self.hr_size / size) / np.log(2))
             ## if size = 20, 40, 80 --> level = 3, 2, 1
-
+            # print('hr_size is', self.hr_size)
+            # print('size is ', size)
             if level > 0 and level not in level_conditionals.keys():
                 level_conditionals[level] = rrdbResults[self.levelToName[level]]
 
@@ -291,7 +295,7 @@ class FlowUpsamplerNet(nn.Module):
 
         for layer, shape in zip(reversed(self.layers), reversed(self.output_shapes)):
             size = shape[2]
-            level = int(np.log(160 / size) / np.log(2))
+            level = int(np.log(self.hr_size / size) / np.log(2))
             # size = fl_fea.shape[2]
             # level = int(np.log(160 / size) / np.log(2))
 
@@ -303,10 +307,13 @@ class FlowUpsamplerNet(nn.Module):
                 fl_fea, logdet = layer(fl_fea, logdet=logdet, reverse=True, rrdbResults=level_conditionals[level])
             else:
                 fl_fea, logdet = layer(fl_fea, logdet=logdet, reverse=True)
+            
+        # print(rrdbResults['fea_up1'].shape)
+        sr = fl_fea 
+        # filters = torch.randn(1,320,3,3, requires_grad=True).cuda()
+        # sr = fl_fea + F.conv2d(rrdbResults['fea_up1'], filters, padding=1)
 
-        sr = fl_fea
-
-        assert sr.shape[1] == 3
+        assert sr.shape[1] == 1
         return sr, logdet
 
     def forward_split2d_reverse(self, eps_std, epses, fl_fea, layer, rrdbResults, logdet, y_onehot=None):
@@ -318,6 +325,6 @@ class FlowUpsamplerNet(nn.Module):
 
 
 def get_position_name(H, scale):
-    downscale_factor = 160 // H
+    downscale_factor = 120 // H
     position_name = 'fea_up{}'.format(scale / downscale_factor)
     return position_name

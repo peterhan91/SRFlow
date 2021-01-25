@@ -74,7 +74,9 @@ class _ActNorm(nn.Module):
 
         if offset is not None:
             logs = logs + offset
-
+        
+        # logs = torch.clamp(logs, min=-10, max=1.1)
+        # print('logs value is ', logs)
         if not reverse:
             input = input * torch.exp(logs) # should have shape batchsize, n_channels, 1, 1
             # input = input * torch.exp(logs+logs_offset)

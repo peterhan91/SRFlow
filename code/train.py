@@ -187,19 +187,17 @@ def main():
 
             #### training
             model.feed_data(train_data)
-
+            # try:
+            nll = model.optimize_parameters(current_step)
+            # except RuntimeError as e:
+            #   print("Skipping ERROR caught in nll = model.optimize_parameters(current_step): ")
+            #     print(e)
+            # if nll is None:
+            #     nll = 0
+            
             #### update learning rate
             model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
-
-            try:
-                nll = model.optimize_parameters(current_step)
-            except RuntimeError as e:
-                print("Skipping ERROR caught in nll = model.optimize_parameters(current_step): ")
-                print(e)
-
-            if nll is None:
-                nll = 0
-
+            
             #### log
             def eta(t_iter):
                 return (t_iter * (opt['train']['niter'] - current_step)) / 3600
@@ -279,11 +277,11 @@ def main():
                         util.save_img(gt_img, save_img_path_gt)
 
                     # calculate PSNR
-                    crop_size = opt['scale']
+                    crop_size = opt['scale'] 
                     gt_img = gt_img / 255.
                     sr_img = sr_img / 255.
-                    cropped_sr_img = sr_img[crop_size:-crop_size, crop_size:-crop_size, :]
-                    cropped_gt_img = gt_img[crop_size:-crop_size, crop_size:-crop_size, :]
+                    cropped_sr_img = sr_img[crop_size:-crop_size, crop_size:-crop_size]
+                    cropped_gt_img = gt_img[crop_size:-crop_size, crop_size:-crop_size]
                     avg_psnr += util.calculate_psnr(cropped_sr_img * 255, cropped_gt_img * 255)
 
                 avg_psnr = avg_psnr / idx

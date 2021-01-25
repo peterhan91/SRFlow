@@ -43,9 +43,9 @@ class SRFlowNet(nn.Module):
         set_RRDB_to_train = False
         if set_RRDB_to_train:
             self.set_rrdb_training(True)
-
+        self.hr_size = opt_get(opt, ['datasets', 'train', 'GT_size'])
         self.flowUpsamplerNet = \
-            FlowUpsamplerNet((160, 160, 3), hidden_channels, K,
+            FlowUpsamplerNet((self.hr_size, self.hr_size, in_nc), hidden_channels, K,
                              flow_coupling=opt['network_G']['flow']['coupling'], opt=opt)
         self.i = 0
 
@@ -65,7 +65,7 @@ class SRFlowNet(nn.Module):
                                     y_onehot=y_label)
         else:
             # assert lr.shape[0] == 1
-            assert lr.shape[1] == 3
+            assert lr.shape[1] == 1
             # assert lr.shape[2] == 20
             # assert lr.shape[3] == 20
             # assert z.shape[0] == 1
@@ -127,6 +127,8 @@ class SRFlowNet(nn.Module):
                     keys.append('fea_up0')
                 if 'fea_up-1' in rrdbResults.keys():
                     keys.append('fea_up-1')
+                if 'fea_up-2' in rrdbResults.keys():
+                    keys.append('fea_up-2')
                 if self.opt['scale'] >= 8:
                     keys.append('fea_up8')
                 if self.opt['scale'] == 16:
